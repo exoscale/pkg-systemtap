@@ -1,0 +1,58 @@
+#!/usr/bin/make -f
+
+VIM_ADIR = $(CURDIR)/debian/tmp/usr/share/vim/addons
+VIM_RDIR = $(CURDIR)/debian/tmp/usr/share/vim/registry
+
+EMACS_ADIR = $(CURDIR)/debian/tmp/usr/share/emacs/site-lisp/systemtap-common
+
+CONF_FLAGS = --enable-sqlite --disable-crash --enable-docs --disable-pie \
+	     --enable-server --without-rpm --disable-silent-rules \
+	     --enable-translator --disable-publican \
+	     --libexecdir=/usr/lib $(shell dpkg-buildflags --export=configure)
+
+# Building of man pages takes A LOT of time
+ifeq (,$(filter stap_disable_refdocs,$(DEB_BUILD_OPTIONS)))
+	CONF_FLAGS += --enable-refdocs
+else
+	CONF_FLAGS += --disable-refdocs
+endif
+
+%:
+	dh $@ --parallel
+
+override_dh_auto_test:
+	# Tests cannot be run during build, see #526957
+
+override_dh_auto_configure:
+	dh_auto_configure -- $(CONF_FLAGS)
+
+override_dh_auto_install:
+	dh_auto_install
+
+	# Install vim files
+	install -m 644 -D vim/ftdetect/stp.vim $(VIM_ADIR)/ftdetect/stp.vim
+	install -m 644 -D vim/ftplugin/stp.vim $(VIM_ADIR)/ftplugin/stp.vim
+	install -m 644 -D vim/indent/stp.vim $(VIM_ADIR)/indent/stp.vim
+	install -m 644 -D vim/syntax/stp.vim $(VIM_ADIR)/syntax/stp.vim
+	install -m 644 -D $(CURDIR)/debian/systemtap.yaml $(VIM_RDIR)/systemtap.yaml
+
+	# Install emacs files
+	install -m 644 -D emacs/systemtap-init.el $(EMACS_ADIR)/systemtap-init.el
+	install -m 644 -D emacs/systemtap-mode.el $(EMACS_ADIR)/systemtap-mode.el
+
+	# Install stap-prep
+	install -D stap-prep $(CURDIR)/debian/tmp/usr/bin/stap-prep
+
+	# Ensure that example scripts are executable but tapset files are not
+	find debian/tmp/usr/share/doc/systemtap/examples/ -name \*.stp \! -executable | grep -v /tapset/ | xargs --no-run-if-empty chmod -v +x
+	find debian/tmp/usr/share/doc/systemtap/examples/ -name \*.stp -executable | grep /tapset/ | xargs --no-run-if-empty chmod -v -x
+
+	# Remove empty file to make lintian happy, patch sent to xmlto upstream
+	rm -f debian/tmp/usr/share/doc/systemtap/tapsets/tapsets.proc
+
+override_dh_compress:
+	dh_compress -X.stp -X.wav -Xsocktop -Xsyscalltimes -X.pdf
+
+override_dh_fixperms:
+	dh_fixperms
+	chmod 4754 debian/systemtap-runtime/usr/bin/staprun
